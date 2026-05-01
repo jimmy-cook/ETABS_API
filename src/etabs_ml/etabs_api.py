@@ -1,6 +1,7 @@
 import math
 import sys
 import csv
+from typing import Optional
 
 from ctypes import c_double
 
@@ -72,6 +73,46 @@ def _mass_table_cell(v) -> str:
     if v is None:
         return ""
     return str(v)
+
+
+def _mass_source_name_field(fields: tuple) -> str:
+    try:
+        return str(fields[list(fields).index("Name")])
+    except ValueError:
+        return "Name"
+
+
+def _mass_source_row_name(fields: tuple, row: list) -> str:
+    """``Name`` column value; avoids assuming column 0 is ``Name`` (varies by ETABS export order)."""
+    if not fields or not row:
+        return ""
+    try:
+        i = list(fields).index("Name")
+    except ValueError:
+        return str(row[0]).strip() if row else ""
+    return str(row[i]).strip() if i < len(row) else ""
+
+
+def _mass_source_load_columns(fields: tuple) -> tuple[Optional[str], Optional[str]]:
+    """
+    Locate load-pattern / multiplier column headers on the *Mass Source Definition* table.
+    ETABS versions differ (e.g. ``LoadPattern`` vs ``Load Pat``).
+    """
+    load_f: Optional[str] = None
+    mul_f: Optional[str] = None
+    for f in fields:
+        key = str(f).lower().replace(" ", "").replace("_", "")
+        if load_f is None and key in ("loadpattern", "loadpat", "pattern", "patternname"):
+            load_f = str(f)
+        if mul_f is None and key in ("multiplier", "mult", "factor", "scalefactor", "sf"):
+            mul_f = str(f)
+    if load_f is None:
+        for f in fields:
+            key = str(f).lower().replace(" ", "")
+            if "loadpattern" in key or key == "pattern":
+                load_f = str(f)
+                break
+    return load_f, mul_f
 
 
 def _prop_material_mass_option(add_elements: bool, add_masses: bool, use_loads: bool) -> int:
@@ -227,6 +268,20 @@ def _apply_mass_source_definition_rows(sap_model, fields: tuple, rows: list) -> 
         return False
 
 
+def _try_one_set_mass_source_call(fn, arg_tuples: list) -> bool:
+    """Try several COM argument shapes; typelibs differ on ``IsDefault`` placement / presence."""
+    for args in arg_tuples:
+        try:
+            ret = fn(*args)
+            if _named_mass_source_set_ok(ret):
+                return True
+        except (TypeError, ValueError, AttributeError):
+            continue
+        except Exception:
+            continue
+    return False
+
+
 def _try_source_mass_set_patterns(sap_model, existing_name: str, ms_name: str,
                                    add_elements: bool, add_masses: bool, use_loads: bool,
                                    lp: list, mul: list, is_default: bool) -> bool:
@@ -255,19 +310,30 @@ def _try_source_mass_set_patterns(sap_model, existing_name: str, ms_name: str,
             try:
                 sa_bstr = _midlSAFEARRAY(BSTR)
                 sa_dbl = _midlSAFEARRAY(c_double)
-                load_arr = sa_bstr.create(pats)
-                sf_arr = sa_dbl.create(muls)
-                ret = fn(
-                    str(name_try),
-                    bool(add_elements),
-                    bool(add_masses),
-                    bool(use_loads),
-                    bool(is_default),
-                    int(n),
-                    load_arr,
-                    sf_arr,
-                )
-                if _named_mass_source_set_ok(ret):
+                # Common: Name, ElSelf, AddedMass, Loads, IsDefault, N, LoadPat[], SF[]
+                # Alternate: omit IsDefault (7 args after name on some builds)
+                arg_sets = [
+                    (
+                        str(name_try),
+                        bool(add_elements),
+                        bool(add_masses),
+                        bool(use_loads),
+                        bool(is_default),
+                        int(n),
+                        sa_bstr.create(pats),
+                        sa_dbl.create(muls),
+                    ),
+                    (
+                        str(name_try),
+                        bool(add_elements),
+                        bool(add_masses),
+                        bool(use_loads),
+                        int(n),
+                        sa_bstr.create(pats),
+                        sa_dbl.create(muls),
+                    ),
+                ]
+                if _try_one_set_mass_source_call(fn, arg_sets):
                     return True
             except Exception:
                 continue
@@ -306,6 +372,7 @@ def _define_mass_source_via_database(
     fields, rows = _read_mass_source_definition(sap_model)
     if not fields or not rows:
         return False
+    nm_field = _mass_source_name_field(fields)
 
     lp = [str(x) for x in load_patterns if x is not None and str(x).strip()]
     mul = [float(x) for x in multipliers]
@@ -317,16 +384,18 @@ def _define_mass_source_via_database(
     existing_ms_name: str = ""
     for r in rows:
         d = dict(zip(fields, r))
-        nm = str(d.get("Name", "")).strip()
+        nm = str(d.get(nm_field, d.get("Name", ""))).strip()
         if nm:
             if str(d.get("IsDefault", "")).strip().lower() == "yes":
                 existing_ms_name = nm
                 break
     if not existing_ms_name and rows:
-        existing_ms_name = str(dict(zip(fields, rows[0])).get("Name", "")).strip()
+        d0 = dict(zip(fields, rows[0]))
+        existing_ms_name = str(d0.get(nm_field, d0.get("Name", ""))).strip()
 
-    # --- Phase 1: PropMaterial global mass (always attempt; required for "loads and elements") ---
-    pm_ok = _prop_material_set_mass_source_csi(
+    # --- Phase 1: PropMaterial global mass (best-effort; some builds return failure even when
+    # SourceMass + Mass Source Definition table still accept the same load patterns.)
+    _prop_material_set_mass_source_csi(
         sap_model,
         add_elements=bool(add_elements),
         add_masses=bool(add_masses),
@@ -334,8 +403,6 @@ def _define_mass_source_via_database(
         load_patterns=lp,
         multipliers=mul,
     )
-    if use_loads and not pm_ok:
-        return False
 
     # --- Phase 2: Try COM SourceMass.SetMassSource using the existing name ---
     # Using the existing name (e.g. "MsSrc1") lets ETABS locate the record and update it
@@ -352,7 +419,7 @@ def _define_mass_source_via_database(
     updated = False
     for i, r in enumerate(rows):
         d = dict(zip(fields, r))
-        nm = str(d.get("Name", "")).strip()
+        nm = str(d.get(nm_field, d.get("Name", ""))).strip()
         match = (not updated) and (
             len(rows) == 1
             or nm == existing_ms_name
@@ -362,7 +429,7 @@ def _define_mass_source_via_database(
         )
         if match:
             updated = True
-            d["Name"] = str(ms_name).strip()
+            d[nm_field] = str(ms_name).strip()
             d["IsDefault"] = _yn(bool(is_default))
             d["IncLateral"] = _yn(bool(inc_lateral))
             d["IncVertical"] = _yn(bool(inc_vertical))
@@ -373,9 +440,9 @@ def _define_mass_source_via_database(
             d["MoveMass"] = str(d.get("MoveMass", "No") or "No")
         new_rows.append([_mass_table_cell(d.get(f)) for f in fields])
 
-    if not any(str(r[0]).strip() == str(ms_name).strip() for r in new_rows):
+    if not any(_mass_source_row_name(fields, r) == str(ms_name).strip() for r in new_rows):
         d = dict(zip(fields, rows[0]))
-        d["Name"] = str(ms_name).strip()
+        d[nm_field] = str(ms_name).strip()
         d["IsDefault"] = _yn(bool(is_default))
         d["IncLateral"] = _yn(bool(inc_lateral))
         d["IncVertical"] = _yn(bool(inc_vertical))
@@ -388,16 +455,27 @@ def _define_mass_source_via_database(
 
     # If COM path succeeded the patterns are already stored internally; we only need
     # to apply the header row to rename the mass source.  When COM failed, also append
-    # inline LoadPattern/Multiplier rows so ETABS can reconstruct them in-session.
-    if not source_mass_com_ok and use_loads and lp and "LoadPattern" in fields and "Multiplier" in fields:
+    # inline load-pattern rows so ETABS can reconstruct them in-session.
+    lf, mf = _mass_source_load_columns(fields)
+    if not source_mass_com_ok and use_loads and lp and lf and mf:
         for pat, sf in zip(lp, mul):
             pat_d: dict = {f: "" for f in fields}
-            pat_d["Name"] = str(ms_name).strip()
-            pat_d["LoadPattern"] = str(pat)
-            pat_d["Multiplier"] = str(sf)
+            pat_d[nm_field] = str(ms_name).strip()
+            pat_d[str(lf)] = str(pat)
+            pat_d[str(mf)] = str(sf)
             new_rows.append([_mass_table_cell(pat_d.get(f)) for f in fields])
 
-    return _apply_mass_source_definition_rows(sap_model, fields, new_rows)
+    applied = _apply_mass_source_definition_rows(sap_model, fields, new_rows)
+    if applied and use_loads and lp:
+        _prop_material_set_mass_source_csi(
+            sap_model,
+            add_elements=bool(add_elements),
+            add_masses=bool(add_masses),
+            use_loads=True,
+            load_patterns=lp,
+            multipliers=mul,
+        )
+    return applied
 
 
 def _propframe_iface(sap_model):
@@ -749,23 +827,30 @@ class EtabsModel:
             try:
                 sa_bstr = _midlSAFEARRAY(BSTR)
                 sa_dbl = _midlSAFEARRAY(c_double)
-                load_arr = sa_bstr.create(lp) if n_loads else sa_bstr.create([])
-                sf_arr = sa_dbl.create(mul) if n_loads else sa_dbl.create([])
-                ret = fn(
-                    ms_name,
-                    bool(add_elements),
-                    bool(add_masses),
-                    bool(add_loads),
-                    bool(is_default),
-                    int(n_loads),
-                    load_arr,
-                    sf_arr,
-                )
-            except TypeError:
-                return False
+                arg_sets = [
+                    (
+                        ms_name,
+                        bool(add_elements),
+                        bool(add_masses),
+                        bool(add_loads),
+                        bool(is_default),
+                        int(n_loads),
+                        sa_bstr.create(lp) if n_loads else sa_bstr.create([]),
+                        sa_dbl.create(mul) if n_loads else sa_dbl.create([]),
+                    ),
+                    (
+                        ms_name,
+                        bool(add_elements),
+                        bool(add_masses),
+                        bool(add_loads),
+                        int(n_loads),
+                        sa_bstr.create(lp) if n_loads else sa_bstr.create([]),
+                        sa_dbl.create(mul) if n_loads else sa_dbl.create([]),
+                    ),
+                ]
+                if not _try_one_set_mass_source_call(fn, arg_sets):
+                    return False
             except Exception:
-                return False
-            if not _named_mass_source_set_ok(ret):
                 return False
             if is_default:
                 sdef = getattr(coll, "SetDefault", None)
@@ -781,8 +866,6 @@ class EtabsModel:
         except Exception:
             pass
         for coll_name in (
-            "PropMassSource",
-            "propMassSource",
             "SourceMass",
             "sourceMass",
             "MassDef",

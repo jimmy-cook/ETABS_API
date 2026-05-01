@@ -9,6 +9,7 @@ env/
 
 # Generated dataset / ETABS runs (recreate with run_primitive_ml_dataset.py)
 ml_primitive_output/
+ml_primitive_verify_run/
 
 # One-off CSI verification scratch (local only)
 _csi_verify*/

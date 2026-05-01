@@ -59,6 +59,7 @@ from .asce7_16_load_setup import (
     parse_custom_combos_from_dict,
     should_run_asce716_combo_section,
     ubc97_params_from_mapping,
+    _pattern_names,
 )
 from .database_tables import DatabaseTables
 
@@ -122,7 +123,7 @@ def _load_case_type(sap_model, name: str) -> Optional[int]:
 
 def _pick_dead_pattern_name(sap_model) -> str:
     try:
-        pats = list(sap_model.LoadPatterns.GetNameList()[1])
+        pats = list(_pattern_names(sap_model))
     except (TypeError, IndexError, AttributeError):
         pats = []
     for cand in ("Dead", "DEAD", "D", "SDL", "DL"):
@@ -135,7 +136,7 @@ def _pick_dead_pattern_name(sap_model) -> str:
 def _pick_live_pattern_name(sap_model) -> str:
     """Prefer an existing live-style pattern name on the model."""
     try:
-        pats = list(sap_model.LoadPatterns.GetNameList()[1])
+        pats = list(_pattern_names(sap_model))
     except (TypeError, IndexError, AttributeError):
         pats = []
     for cand in ("Live", "LIVE", "L"):
@@ -162,11 +163,12 @@ def _get_floor_area_names(sap_model) -> List[str]:
 
 def _ensure_load_pattern(sap_model, name: str, load_type: int) -> Dict[str, Any]:
     try:
-        existing = list(sap_model.LoadPatterns.GetNameList()[1])
+        existing_set = set(_pattern_names(sap_model))
     except Exception:
-        existing = []
-    if name in existing:
-        return {"name": name, "load_type": load_type, "created": False}
+        existing_set = set()
+    resolved = _resolve_load_pattern_name(str(name).strip(), existing_set) if existing_set else None
+    if resolved:
+        return {"name": resolved, "load_type": load_type, "created": False}
     ret = sap_model.LoadPatterns.Add(name, int(load_type), 0.0, True)
     return {"name": name, "load_type": load_type, "created": _csi_ok(ret)}
 
@@ -193,24 +195,28 @@ def assign_floor_area_loads(
     floor_areas = _get_floor_area_names(sap_model)
     sd = _ensure_load_pattern(sap_model, super_dead_pattern, load_type=2)
     ll = _ensure_load_pattern(sap_model, live_pattern, load_type=3)
+    sd_name = str(sd.get("name") or super_dead_pattern).strip()
+    ll_name = str(ll.get("name") or live_pattern).strip()
 
     sd_ok = 0
     ll_ok = 0
     for area in floor_areas:
-        if _set_area_uniform_load(sap_model, area, super_dead_pattern, super_dead_value):
+        if _set_area_uniform_load(sap_model, area, sd_name, super_dead_value):
             sd_ok += 1
-        if _set_area_uniform_load(sap_model, area, live_pattern, live_value):
+        if _set_area_uniform_load(sap_model, area, ll_name, live_value):
             ll_ok += 1
     return {
         "floor_area_count": len(floor_areas),
         "super_dead": {
             "pattern": super_dead_pattern,
+            "resolved_pattern": sd_name,
             "value": float(super_dead_value),
             "pattern_info": sd,
             "assigned_ok": sd_ok,
         },
         "live": {
             "pattern": live_pattern,
+            "resolved_pattern": ll_name,
             "value": float(live_value),
             "pattern_info": ll,
             "assigned_ok": ll_ok,
@@ -299,7 +305,7 @@ def assign_diaphragms_to_floor_areas_by_story(sap_model) -> Dict[str, Any]:
 
 def _list_load_pattern_names(sap_model) -> List[str]:
     try:
-        raw = list(sap_model.LoadPatterns.GetNameList()[1])
+        raw = list(_pattern_names(sap_model))
     except (TypeError, IndexError, AttributeError):
         return []
     return [str(x) for x in raw if x is not None and not str(x).startswith("~")]
@@ -363,7 +369,8 @@ def define_mass_source_default(
     Set ``include_dead_in_mass_loads`` / ``include_super_dead_in_mass_loads`` to also
     add **Dead** / super-dead patterns to the load-mass table (legacy behaviour).
 
-    Falls back to element-only mass if the full ``SetMassSource`` call fails.
+    If load patterns were resolved but no API path applies them, this returns ``ok=False``
+    (no silent fallback to element-only mass, which would hide missing SDL/LIVE in the GUI).
     """
     existing = set(_list_load_pattern_names(sap_model))
     patterns: List[str] = []
@@ -416,18 +423,25 @@ def define_mass_source_default(
     em = EtabsModel(sap_model)
     attempts: List[Dict[str, Any]] = []
     ok = False
-    # Preference: element self mass + specified patterns; then element-only.
-    variants = [
-        ("loads_and_elements", True, bool(add_masses), True, patterns, multipliers),
-        ("elements_only", True, bool(add_masses), False, [], []),
-    ]
-    for tag, ae, am, al, pats, mults in variants:
+    want_load_patterns = bool(patterns)
+    # Try default-on then default-off for the named mass source; some ETABS builds reject one.
+    variants: List[Tuple[str, bool, bool, bool, List[str], List[float], bool]] = []
+    if want_load_patterns:
+        variants.append(
+            ("loads_and_elements_is_default_T", True, bool(add_masses), True, patterns, multipliers, True)
+        )
+        variants.append(
+            ("loads_and_elements_is_default_F", True, bool(add_masses), True, patterns, multipliers, False)
+        )
+    else:
+        variants.append(("elements_only", True, bool(add_masses), False, [], [], True))
+    for tag, ae, am, al, pats, mults, is_def in variants:
         flag = em.define_mass_source(
             name=str(name),
             add_elements=ae,
             add_masses=am,
             add_loads=al,
-            is_default=True,
+            is_default=bool(is_def),
             load_patterns=pats,
             multipliers=mults,
         )
@@ -437,6 +451,7 @@ def define_mass_source_default(
                 "add_elements": ae,
                 "add_masses": am,
                 "add_loads": al,
+                "is_default": bool(is_def),
                 "patterns": list(pats),
                 "multipliers": list(mults),
                 "ok": bool(flag),
@@ -445,6 +460,17 @@ def define_mass_source_default(
         if flag:
             ok = True
             break
+
+    if want_load_patterns and not ok:
+        attempts.append(
+            {
+                "name": "note",
+                "detail": "Load patterns were resolved but mass source with loads could not be applied; "
+                "check manifest attempts and ETABS Mass Source Definition table.",
+                "resolved_patterns": list(patterns),
+                "ok": False,
+            }
+        )
 
     return {
         "mass_source": name,
@@ -1209,6 +1235,7 @@ def run_pipeline(
             name="MS1",
             super_dead_pattern=super_dead_pattern,
             live_pattern=live_pattern,
+            sdl_pattern=str(super_dead_pattern).strip() or "SDL",
         )
 
     lc_static = ensure_linear_static_dead_case(sap_model)
@@ -1268,6 +1295,7 @@ def run_pipeline(
             name="MS1",
             super_dead_pattern=super_dead_pattern,
             live_pattern=live_pattern,
+            sdl_pattern=str(super_dead_pattern).strip() or "SDL",
         )
 
     manifest_path = run_dir / "manifest.json"
