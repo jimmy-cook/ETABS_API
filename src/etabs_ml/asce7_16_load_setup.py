@@ -37,8 +37,8 @@ Sec. 2.3 / project criteria. For JSON-driven **custom** linear-add combos, use
 
 Example::
 
-    from etabs_api import EtabsConnection
-    from asce7_16_load_setup import (
+    from etabs_ml.etabs_api import EtabsConnection
+    from etabs_ml.asce7_16_load_setup import (
         Asce716LoadConfig,
         Asce716WindASCE716Params,
         setup_asce716_loads,
@@ -1141,7 +1141,7 @@ def _set_area_uniform(
     With global Z up, a **negative** value often acts downward for ``direction=6`` (match ``etabs_api.area``).
     """
     try:
-        from etabs_api import EtabsLoading  # same logic as structured_analysis_export
+        from .etabs_api import EtabsLoading  # same logic as structured_analysis_export
 
         ok = EtabsLoading(sap_model).assign_area_uniform_load(
             str(area_name), str(load_pattern), float(pressure), int(direction)

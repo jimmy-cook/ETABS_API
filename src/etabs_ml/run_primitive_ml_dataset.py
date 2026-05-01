@@ -279,9 +279,9 @@ def run_primitive_generation(
             row["status"] = "accepted_geometry_only"
         else:
             try:
-                from etabs_api import EtabsConnection
+                from .etabs_api import EtabsConnection
             except ImportError:
-                print("etabs_api.py must be importable from project root.", file=sys.stderr)
+                print("etabs_ml.etabs_api could not be imported (install with: pip install -e .).", file=sys.stderr)
                 return 1
             conn = EtabsConnection(attach_to_active=False)
             conn.connect()

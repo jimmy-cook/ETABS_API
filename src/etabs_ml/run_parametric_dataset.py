@@ -219,7 +219,7 @@ def build_etabs_frame_model(
 
     **US / FPS (4)**: ``auto`` uses ``concrete_fc_psi``, ksi rebar, and inch-based cover/spacing (→ ft).
     """
-    from etabs_api import EtabsGeometry, EtabsLoading, EtabsModel
+    from .etabs_api import EtabsGeometry, EtabsLoading, EtabsModel
 
     rb = scale_resolved_building(rb, float(length_scale_from_metres))
 
@@ -472,9 +472,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             built += 1
         else:
             try:
-                from etabs_api import EtabsConnection
+                from .etabs_api import EtabsConnection
             except ImportError:
-                print("etabs_api.py must be on PYTHONPATH (run from project root).")
+                print("etabs_ml.etabs_api could not be imported (install with: pip install -e .).")
                 return 1
 
             conn = EtabsConnection(attach_to_active=False)
