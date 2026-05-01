@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ETABS primitive ML dataset — config &amp; run guide</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #334155;
+      --heading: #0f172a;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --accent-light: #eff6ff;
+      --code-bg: #f1f5f9;
+      --code-text: #0f172a;
+    }
+    
+    * { box-sizing: border-box; }
+    
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      line-height: 1.7;
+      color: var(--text);
+      background: var(--bg);
+      margin: 0;
+      padding: 3rem clamp(1.5rem, 5vw, 3rem) 5rem;
+      max-width: 56rem;
+      margin-inline: auto;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1, h2, h3, h4 {
+      color: var(--heading);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    h1 { 
+      font-size: 2.25rem; 
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      line-height: 1.2;
+    }
+
+    h2 { 
+      font-size: 1.5rem; 
+      margin-top: 3rem; 
+      margin-bottom: 1.25rem;
+      border-bottom: 2px solid var(--border); 
+      padding-bottom: 0.5rem; 
+    }
+
+    h3 { 
+      font-size: 1.25rem; 
+      margin-top: 2rem;
+      margin-bottom: 1rem;
+      color: var(--accent);
+    }
+
+    h4 {
+      font-size: 1.1rem;
+      margin-top: 1.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    p, li { 
+      color: var(--text); 
+      margin-bottom: 1rem;
+    }
+
+    .muted { 
+      color: var(--muted); 
+      font-size: 1.05rem; 
+    }
+
+    code, pre {
+      font-family: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.9em;
+    }
+
+    code { 
+      background: var(--code-bg);
+      color: var(--code-text);
+      padding: 0.2em 0.4em; 
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    pre {
+      padding: 1.25rem;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    pre code {
+      background: transparent;
+      border: none;
+      padding: 0;
+      color: var(--code-text);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.95rem;
+      margin: 1.5rem 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    th, td { 
+      border-bottom: 1px solid var(--border); 
+      padding: 0.75rem 1rem; 
+      text-align: left; 
+      vertical-align: top; 
+    }
+
+    th { 
+      background: var(--bg); 
+      font-weight: 600; 
+      color: var(--heading);
+    }
+
+    tr:last-child td { border-bottom: none; }
+    
+    tr:hover td {
+      background: var(--accent-light);
+    }
+
+    .note {
+      border-left: 4px solid var(--accent);
+      padding: 1rem 1.25rem;
+      margin: 1.5rem 0;
+      background: var(--card);
+      border-radius: 0 8px 8px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .note strong {
+      color: var(--accent);
+    }
+
+    a { 
+      color: var(--accent); 
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    ul { 
+      padding-left: 1.5rem; 
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    /* Add some spacing to lists inside constraint sections */
+    h4 + ul > li {
+      margin-bottom: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Primitive ML dataset — configuration &amp; how to run</h1>
+<p class="muted">
+  This project generates parametric multi-story ETABS frame models from a JSON config.
+  Geometry and constraints are resolved in <strong>metres (MKS)</strong> internally; you may author configs in
+  <strong>MKS/SI metre keys</strong> or use <strong>FPS-style aliases</strong> (feet / inches) that are converted at load time.
+  The response pipeline supports <strong>CSI present units</strong> (<code>csi_present_units.py</code>) and
+  <strong>database table output options</strong> (<code>csi_table_output_options.py</code>) so CSV exports match ETABS GUI behaviour.
+</p>
+
+<h2>1. Config files (MKS vs FPS)</h2>
+<p>Two starter configs ship in the project root:</p>
+<table>
+  <thead>
+    <tr><th>File</th><th>Typical use</th><th>Geometry keys</th><th><code>etabs.units</code></th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>primitive_ml_dataset.default.json</code></td>
+      <td>Metre-based editing (MKS)</td>
+      <td><code>Sx_m</code>, <code>Sy_m</code>, <code>h_story_m</code>, <code>hb_m</code>, …</td>
+      <td>Often <code>"mks"</code> (kN, m, °C)</td>
+    </tr>
+    <tr>
+      <td><code>primitive_ml_dataset.default.us_fps.json</code></td>
+      <td>US-friendly numbers in config</td>
+      <td><code>Sx_ft</code>, <code>Sy_ft</code>, <code>h_story_ft</code>, <code>hb_in</code>, <code>ts_in</code>, … (converted to metres when loaded)</td>
+      <td><code>"us"</code> (kip, ft, °F)</td>
+    </tr>
+  </tbody>
+</table>
+<p class="muted">
+  Conversion is handled by <code>primitive_sampling.normalize_length_unit_aliases()</code> (e.g. 1&nbsp;ft = 0.3048&nbsp;m, 1&nbsp;in = 0.0254&nbsp;m).
+  After load, sampling and constraints use the same internal metre-based keys regardless of which file you started from.
+</p>
+
+<h3>1.1 Top-level flags</h3>
+<table>
+  <thead><tr><th>JSON key</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>with_analysis_responses</code></td><td>If <code>true</code>, after each <code>.edb</code> is saved, runs slab loads, auto seismic (if configured), mass source, analysis, and CSV export under <code>responses/</code>.</td></tr>
+    <tr><td><code>export_all_available_tables</code></td><td>If <code>true</code>, also dumps every table the ETABS API exposes (can be very large).</td></tr>
+    <tr><td><code>description</code></td><td>Human notes only; ignored by the code.</td></tr>
+  </tbody>
+</table>
+
+<h3>1.2 <code>sampling</code></h3>
+<table>
+  <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>method</code></td><td><code>"lhs"</code> (Latin hypercube) or <code>"random"</code>.</td></tr>
+    <tr><td><code>target_accepted</code></td><td>Stop after this many accepted buildings.</td></tr>
+    <tr><td><code>seed</code></td><td>Random seed for reproducibility.</td></tr>
+    <tr><td><code>max_draws</code></td><td>Maximum total draws (including rejects) before stopping.</td></tr>
+  </tbody>
+</table>
+
+<h3>1.3 <code>discrete</code></h3>
+<p>Lists of allowed integer / categorical choices (not uniformly drawn between min and max).</p>
+<table>
+  <thead><tr><th>Key</th><th>MKS example</th><th>FPS example (aliases)</th></tr></thead>
+  <tbody>
+    <tr><td><code>nx</code>, <code>ny</code></td><td>Bay counts in X and Y.</td><td>Same (unitless).</td></tr>
+    <tr><td><code>n_stories</code></td><td>Number of above-base stories.</td><td>Same.</td></tr>
+    <tr><td><code>h_story_m</code></td><td>List of storey heights, <strong>metres</strong> (e.g. 3.048, 3.6576).</td><td>Use <code>h_story_ft</code> instead (e.g. 10, 11, 12) — converted to metres.</td></tr>
+  </tbody>
+</table>
+
+<h3>1.4 <code>continuous</code></h3>
+<p>Each entry is <code>{ "min": …, "max": … }</code>. The sampler draws one value per accepted draw (LHS or random).</p>
+<table>
+  <thead><tr><th>Concept</th><th>MKS keys (<code>default.json</code>)</th><th>FPS keys (<code>default.us_fps.json</code>)</th></tr></thead>
+  <tbody>
+    <tr><td>Bay spacing X / Y</td><td><code>Sx_m</code>, <code>Sy_m</code></td><td><code>Sx_ft</code>, <code>Sy_ft</code></td></tr>
+    <tr><td>Storey height (if not only discrete list)</td><td><code>h_story_m</code></td><td><code>h_story_ft</code> (in <code>continuous</code> if used)</td></tr>
+    <tr><td>Beam depth</td><td><code>hb_m</code></td><td><code>hb_in</code></td></tr>
+    <tr><td>Beam width ratio</td><td><code>bw_over_hb</code></td><td>Same (ratio).</td></tr>
+    <tr><td>Column widths</td><td><code>bcx_m</code>, <code>bcy_m</code></td><td><code>bcx_in</code>, <code>bcy_in</code></td></tr>
+    <tr><td>Slab thickness</td><td><code>ts_m</code></td><td><code>ts_in</code></td></tr>
+    <tr><td>Column area ratios</td><td><code>col_top_area_ratio</code>, <code>col_ext_area_ratio</code></td><td>Same (dimensionless).</td></tr>
+  </tbody>
+</table>
+
+<h3>1.5 <code>constraints</code> (Engineering Rules)</h3>
+<p>Accept/reject bands on <strong>derived</strong> geometry after a primitive sample is resolved. If a randomly generated building violates <em>any</em> of these rules, it is thrown away and a new one is drawn. This prevents ETABS from analyzing physically impossible or highly unrealistic structures.</p>
+
+<p>Many entries are a two-number list <code>[low, high]</code>; some are a single scalar factor. Units on length-based constraints follow the key: <code>Smax_m</code> / <code>h_story_m</code> in MKS, or <code>Smax_ft</code> / <code>h_story_ft</code> in FPS configs (converted to metres internally).</p>
+
+<h4>1.5.1 Geometric & System Proportions</h4>
+<ul>
+  <li><code>plan_aspect_ratio</code>: [min, max] ratio of <code>Ly / Lx</code> (building footprint).</li>
+  <li><code>elevation_aspect_ratio</code>: [min, max] ratio of total height to minimum plan dimension.</li>
+  <li><code>internal_bay_variance</code>: [min, max] ratio of <code>min(Sx, Sy) / max(Sx, Sy)</code>. Prevents extremely long, narrow bays.</li>
+</ul>
+
+<h4>1.5.2 Beam & Slab Rules</h4>
+<ul>
+  <li><code>hb_over_Smax</code>: [min, max] span-to-depth ratio for beams. Ensures beams are deep enough for the span but not absurdly huge.</li>
+  <li><code>ts_over_Smax</code>: [min, max] span-to-depth ratio for slabs.</li>
+  <li><code>beam_aspect_ratio</code>: [min, max] ratio of beam width to depth (<code>bw / hb</code>).</li>
+  <li><code>beam_flat_max_ratio</code>: Maximum allowed <code>bw / hb</code>. If set to 1.0, flat beams (wider than they are deep) are rejected.</li>
+  <li><code>beam_onto_column_max_ratio</code>: Maximum allowed ratio of beam width to column width. If 1.0, beams cannot be wider than the columns they rest on.</li>
+  <li><code>beam_slab_bw_over_ts_min</code>: Ensures the beam width is at least this many times the slab thickness.</li>
+</ul>
+
+<h4>1.5.3 Column Rules</h4>
+<ul>
+  <li><code>column_aspect_ratio</code>: [min, max] ratio of <code>min(bcx, bcy) / max(...)</code>. Prevents blade-like wall-columns.</li>
+  <li><code>column_side_ratio_max</code>: Absolute cap on column rectangularity (e.g., 3.0 means one side can't be more than 3x the other).</li>
+  <li><code>column_slenderness_max</code>: Maximum ratio of story height to minimum column side. Prevents toothpick columns.</li>
+  <li><code>column_vs_beam_factor</code>: Forces a minimum column dimension relative to the beam depth (e.g., 0.62 * hb).</li>
+  <li><code>column_area_index</code> & <code>ext_to_int_col_area_ratio</code>: Controls how much smaller top columns and exterior columns can be compared to the base interior columns.</li>
+  <li><code>scwb_stiffness_ratio_min</code>: Strong-Column/Weak-Beam check. Approximates the stiffness ratio to ensure columns are stiffer than the beams framing into them.</li>
+</ul>
+
+<h3>1.6 <code>analysis_inputs</code></h3>
+<p>Used by the post-build / response pipeline (not the bare geometry sampler):</p>
+<ul>
+  <li><code>super_dead_value</code>, <code>live_value</code> — uniform slab area loads. Values must match <strong>ETABS force/area units</strong> for the active present-unit system (after <code>SetPresentUnits</code> if set). MKS metric tables often use <strong>kN/m²</strong>; the US FPS preset typically uses <strong>ksf</strong> (e.g. 0.02, 0.05).</li>
+  <li><code>seismic_design_code</code> — <code>"asce7_16"</code> (default) or <code>"ubc97"</code>. Chooses which auto-seismic API path runs for <code>QX</code> / <code>QY</code>. CLI override: <code>--seismic-design-code ubc97</code>.</li>
+  <li><strong>ASCE 7–16</strong> (when code is <code>asce7_16</code>): <code>seismic_x_name</code>, <code>seismic_y_name</code>, <code>seismic_ss</code>, <code>seismic_s1</code>, <code>seismic_r</code>, <code>seismic_site_class</code>.</li>
+  <li><strong>1997 UBC</strong> (when code is <code>ubc97</code>): optional nested object <code>ubc97</code> for <code>SapModel.LoadPatterns.AutoSeismic.SetUBC97</code> — <code>direction</code> (DirFlag), <code>eccentricity</code>, <code>period_flag</code> (0 = program period), <code>ct</code>, <code>period_t</code> (T), <code>z</code>, <code>soil_profile</code>, <code>importance_i</code>, <code>r</code>, <code>near_source_na</code> / <code>near_source_nv</code>, <code>top_story</code> / <code>bottom_story</code> (names; blank = auto from the model). Legacy <code>seismic_zone</code> maps to <code>z</code> if omitted.</li>
+  <li><code>present_units</code> — optional <strong>string</strong> passed to <code>SapModel.SetPresentUnits</code> at the <strong>start</strong> of <code>structured_analysis_export</code> (see <code>csi_present_units.py</code>). Use <code>null</code> to leave the model’s units unchanged. Must be one of the allowed ids for <code>csi_product</code> (ETABS has six; SAP2000 allows more).</li>
+  <li><code>csi_product</code> — <code>"etabs"</code> or <code>"sap2000"</code>; gates which <code>present_units</code> strings are valid.</li>
+  <li><code>apply_csi_table_output_options</code> — if <code>true</code> (default), merges <code>csi_table_output_options</code> with defaults and applies <code>Results.Setup</code> plus <code>DatabaseTables.SetTableOutputOptionsForDisplay</code> / <code>SetOutputOptionsForDisplay</code> before CSV export (see <code>csi_table_output_options.py</code>).</li>
+  <li><code>csi_table_output_options</code> — optional object overriding envelope vs step-by-step behaviour for database tables (details below).</li>
+  <li><code>asce716_load_combinations</code> — optional object: preset packs (<code>CONC_*</code> / <code>STL_*</code> / <code>SLAB_*</code>) via <code>apply</code> or <code>template_combos</code>, plus optional <code>custom_combos</code> to define your own linear-add combinations in JSON (see §1.6.3).</li>
+</ul>
+
+<h4>1.6.1 CSI present units (<code>present_units</code>)</h4>
+<p>Separate from <code>etabs.units</code> (new-model init). <code>analysis_inputs.present_units</code> only affects the <strong>export run</strong>: it sets ETABS’s current unit system so slab inputs and table/CSV numbers are consistent.</p>
+<table>
+  <thead><tr><th><code>csi_product</code></th><th>Allowed <code>present_units</code> strings (examples)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>"etabs"</code></td>
+      <td><code>lb_in_F</code>, <code>lb_ft_F</code>, <code>kip_in_F</code>, <code>kip_ft_F</code>, <code>kN_mm_C</code>, <code>kN_m_C</code> — six systems total (<code>csi_present_units.ETABS_PRESENT_UNITS</code>).</td>
+    </tr>
+    <tr>
+      <td><code>"sap2000"</code></td>
+      <td>Includes the six above plus metric variants such as <code>N_mm_C</code>, <code>kgf_m_C</code>, … (<code>SAP2000_PRESENT_UNITS</code>).</td>
+    </tr>
+  </tbody>
+</table>
+<p class="muted">Practical pairing: <code>etabs.units</code> <code>"mks"</code> → often <code>"kN_m_C"</code>; <code>"us"</code> → <code>"kip_ft_F"</code>. For <code>"si"</code> (builder uses N, mm internally) the ETABS string whitelist has no <code>N_mm_C</code>; many teams keep <code>present_units</code> as <code>null</code> or align loads carefully. Invalid strings fall back via <code>resolve_present_units</code> — prefer exact ids from the source file.</p>
+
+<h4>1.6.2 <code>csi_table_output_options</code> (integers)</h4>
+<p>Merged with <code>csi_table_output_options.DEFAULT_TABLE_OUTPUT_OPTIONS</code>. Meaning of common values (from <code>apply_results_setup_table_output_options</code> docstring):</p>
+<table>
+  <thead><tr><th>Key(s)</th><th><code>1</code></th><th><code>2</code></th><th><code>3</code></th></tr></thead>
+  <tbody>
+    <tr><td><code>multistep_static</code>, <code>nonlinear_static</code>, <code>modal_history</code>, <code>direct_history</code></td><td>Envelopes</td><td>Step-by-step</td><td>Last step</td></tr>
+    <tr><td><code>load_combo_multiple</code></td><td>Envelopes</td><td colspan="2">Multiple values if possible (no third code in doc)</td></tr>
+    <tr><td><code>mode_shape_option</code>, <code>buckling_option</code></td><td>All modes (range still bounded by start/end)</td><td colspan="2">Some modes</td></tr>
+    <tr><td><code>base_react_option</code></td><td>Program-determined base reaction location</td><td colspan="2">User location — use <code>base_react_x</code> / <code>y</code> / <code>z</code> (floats)</td></tr>
+  </tbody>
+</table>
+<p class="muted">Other keys (<code>mode_shape_start</code>, <code>mode_shape_end</code>, <code>buckling_start</code>, <code>buckling_end</code>, …) follow CSI/OAPI conventions; unknown keys in JSON are ignored on merge.</p>
+
+<h4>1.6.3 <code>asce716_load_combinations</code> (response combos)</h4>
+<p><strong>Preset packs</strong> — When <code>"template_combos"</code> is omitted, it follows legacy <code>"apply": true</code>. <code>structured_analysis_export.run_pipeline</code> calls <code>apply_response_combinations</code> using pattern names from the pipeline (<code>etabs.dead_pattern</code>, <code>live_pattern</code>, <code>super_dead_pattern</code>, seismic names), unless overridden in JSON.</p>
+<p><strong>Custom / overwrite in JSON</strong> — Use <code>"custom_combos"</code> as an object mapping combo name → list of <code>[load_pattern_name, factor]</code> pairs (linear add). Example:</p>
+<pre><code>"custom_combos": {
+  "USER_ULS": [["DEAD", 1.4], ["LIVE", 1.6]],
+  "USER_SLS": [["DEAD", 1.0], ["LIVE", 1.0]]
+}</code></pre>
+<p>Alternative form: <code>"custom_combos": [{"name": "USER_ULS", "terms": [["DEAD", 1.4]]}]</code>. Terms may also use objects <code>{"pattern": "DEAD", "factor": 1.4}</code>.</p>
+<p>Set <code>"replace_existing_combos": true</code> to <code>RespCombo.Delete</code> each custom name before re-adding (lets you redefine a name). Set <code>"template_combos": false</code> with <code>"apply": true</code> to skip preset <code>CONC_*</code> packs but still allow <code>custom_combos</code>; or use <code>"apply": false</code> with only <code>custom_combos</code> for user-defined combos alone.</p>
+<table>
+  <thead><tr><th>JSON key</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>apply</code></td><td>Legacy: when <code>true</code> and <code>template_combos</code> omitted, preset packs run.</td></tr>
+    <tr><td><code>template_combos</code></td><td>Explicit <code>true</code>/<code>false</code> for preset <code>CONC_*</code> / <code>STL_*</code> / <code>SLAB_*</code> (overrides <code>apply</code> for that decision).</td></tr>
+    <tr><td><code>design_sets</code></td><td>Which preset packs: <code>"concrete_frame"</code>, <code>"steel_frame"</code>, <code>"slab_gravity"</code> (default all three).</td></tr>
+    <tr><td><code>custom_combos</code></td><td>User-defined linear-add combinations (object or array form).</td></tr>
+    <tr><td><code>replace_existing_combos</code></td><td>If <code>true</code>, delete then re-add each <strong>custom</strong> combo name.</td></tr>
+    <tr><td><code>include_wind</code></td><td>Prime an empty wind-style pattern when missing (for wind terms).</td></tr>
+    <tr><td><code>include_seismic</code></td><td>On preset config only.</td></tr>
+    <tr><td><code>dead</code>, <code>live</code>, …</td><td>Optional pattern-name overrides for preset templates.</td></tr>
+  </tbody>
+</table>
+<p class="muted">Preset factors remain in <code>_combo_templates</code>; <code>custom_combos</code> is the supported way to set arbitrary factors in JSON.</p>
+<p>CLI equivalent: <code>structured_analysis_export.py --asce716-load-combos-json path\\or\\inline.json</code>.</p>
+
+<h3>1.7 <code>etabs</code></h3>
+<table>
+  <thead><tr><th>Key</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td><code>units</code></td><td>New-model preset: <code>"mks"</code>, <code>"si"</code>, <code>"us"</code>, and aliases (<code>kn_m</code>, <code>n_mm</code>, <code>kip_ft</code>, …). Maps to CSI <code>InitializeNewModel</code> codes and length scaling via <code>etabs_units.resolve_units</code>. CLI: <code>--units</code>.</td></tr>
+    <tr><td><code>present_units</code> (optional, under <code>etabs</code>)</td><td>If set, an <strong>integer</strong> CSI unit code override for the same init path — not the string ids used in <code>analysis_inputs.present_units</code>.</td></tr>
+    <tr><td><code>material_strength_system</code></td><td>Often <code>"auto"</code> so MPa vs psi / rebar style follows <code>units</code>.</td></tr>
+    <tr><td><code>material_name</code>, …</td><td>Concrete material names passed into ETABS (must exist or be creatable for your catalog).</td></tr>
+    <tr><td><code>concrete_fc_mpa</code> / <code>concrete_fc_psi</code></td><td>Strength: MKS/SI uses MPa; US uses psi when the strength system is US.</td></tr>
+    <tr><td><code>dead_pattern</code></td><td>Load pattern name for dead load (should match ETABS, e.g. <code>Dead</code> vs <code>DEAD</code>). Super-dead / live pattern names may be set in code or CLI for the response pipeline.</td></tr>
+    <tr><td>Rebar / cover</td><td>US: inch-based cover and spacing; see <code>main.py</code> <code>USER_SETTINGS</code> comments.</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <strong>Tip:</strong> Run with <code>--no-etabs</code> first to validate sampling and constraint rejection rates without starting ETABS.
+</div>
+
+<h2>2. Prerequisites</h2>
+<ul>
+  <li>Windows, ETABS installed and licensed.</li>
+  <li>Python 3 with dependencies used by the repo (e.g. <code>numpy</code>, <code>comtypes</code>, <code>pandas</code> for CSV export).</li>
+  <li>Run commands from the project directory that contains the JSON configs and <code>run_primitive_ml_dataset.py</code>.</li>
+</ul>
+
+<h3>2.1 Setting up Python (Virtual Environment)</h3>
+<p>Before running the scripts, it is highly recommended to create a virtual environment and install the required packages so you don't get <code>ModuleNotFoundError</code> or missing package errors.</p>
+<pre><code># 1. Open your terminal in the project folder and create a virtual environment
+python -m venv venv
+
+# 2. Activate the virtual environment
+# On Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
+# On Windows (Command Prompt):
+.\venv\Scripts\activate.bat
+
+# 3. Install the required packages
+pip install comtypes numpy pandas
+</code></pre>
+
+<h2>3. How to run</h2>
+
+<h3>3.1 Batch generator (recommended)</h3>
+<pre><code># MKS config — build up to 20 models under ./out_mks (0 = use config target_accepted)
+python run_primitive_ml_dataset.py --config primitive_ml_dataset.default.json --out ./out_mks --limit 20
+
+# US / FPS config
+python run_primitive_ml_dataset.py --config primitive_ml_dataset.default.us_fps.json --out ./out_us --limit 20
+
+# Geometry validation only (no ETABS COM)
+python run_primitive_ml_dataset.py --config primitive_ml_dataset.default.json --out ./dry --no-etabs --limit 100
+
+# Force full analysis export on/off regardless of JSON
+python run_primitive_ml_dataset.py --config primitive_ml_dataset.default.json --out ./out --limit 5 --with-analysis-responses
+python run_primitive_ml_dataset.py --config primitive_ml_dataset.default.json --out ./out --limit 5 --no-analysis-responses
+
+# Override lateral seismic code (default comes from JSON analysis_inputs.seismic_design_code)
+python run_primitive_ml_dataset.py --config primitive_ml_dataset.default.json --out ./out --limit 3 --seismic-design-code ubc97
+
+# Override ETABS unit preset from CLI
+python run_primitive_ml_dataset.py --config primitive_ml_dataset.default.json --out ./out --limit 1 --units mks</code></pre>
+<p class="muted">Use <code>python run_primitive_ml_dataset.py --help</code> for slab load pattern overrides, <code>--export-all-available-tables</code>, and other response-pipeline flags. Use <code>--seismic-design-code</code> to force ASCE 7–16 vs UBC 97.</p>
+
+<h3>3.2 Single-model export (<code>structured_analysis_export.py</code>)</h3>
+<p>For one <code>.edb</code> without the batch sampler, run the same post-build + CSV pipeline directly. Useful for fixtures under <code>models/</code> or any saved model.</p>
+<pre><code>python structured_analysis_export.py --help
+# Open a file (starts ETABS if needed) and write under .\exports\&lt;stem&gt;_&lt;timestamp&gt;\ …
+python structured_analysis_export.py --edb models\asce716_full_workflow_test.EDB --out .\exports --present-units kN_m_C
+# Attach to an already-open model instead of --edb:
+python structured_analysis_export.py --attach --out .\exports --no-csi-table-output-options</code></pre>
+<p class="muted">Flags include <code>--present-units</code>, <code>--csi-product</code>, <code>--table-output-json</code> (JSON string of overrides), and <code>--no-csi-table-output-options</code> to skip <code>Results.Setup</code> / database table setters.</p>
+
+<h3>3.3 Single entry via <code>main.py</code></h3>
+<p>Edit <code>USER_SETTINGS</code> inside <code>main.py</code> (output folder, limits, nested config dict), then:</p>
+<pre><code>python main.py</code></pre>
+
+<h3>3.4 Where batch outputs go</h3>
+<p>Under your <code>--out</code> folder (or <code>main.py</code> <code>output_folder</code>):</p>
+<ul>
+  <li><code>config_resolved.json</code> — copy of the merged config used for the run.</li>
+  <li><code>batch_manifest.json</code> — run-level summary (UTC stamp, accepted count, draws, seismic/load settings, <code>model_ids</code>).</li>
+  <li><code>runs.jsonl</code> — one JSON record per accepted model (paths, mesh counts, story sync, present-unit codes, etc.).</li>
+  <li><code>summary.csv</code> — flat table for spreadsheets.</li>
+  <li><code>models/&lt;model_id&gt;/model.edb</code> — ETABS model.</li>
+  <li>If analysis responses are on: <code>models/&lt;model_id&gt;/responses/&lt;timestamp&gt;/manifest.json</code> and <code>Analysis Results/…/*.csv</code> (including <code>0_All_Available_Tables</code> when full table export is enabled).</li>
+</ul>
+
+<h2>4. Related source files</h2>
+<ul>
+  <li><code>primitive_sampling.py</code> — <code>load_config</code>, LHS/random sampling, FPS alias normalization.</li>
+  <li><code>primitive_constraints.py</code> — constraint evaluation.</li>
+  <li><code>primitive_resolve.py</code> — primitive sample → resolved building geometry.</li>
+  <li><code>etabs_units.py</code> — <code>UNIT_PRESETS</code> / <code>resolve_units</code> for new-model CSI unit codes and length scale.</li>
+  <li><code>csi_present_units.py</code> — string ids for <code>SetPresentUnits</code>, ETABS vs SAP2000 allow-lists.</li>
+  <li><code>csi_table_output_options.py</code> — envelope vs step table options; applies <code>Results.Setup</code> + <code>DatabaseTables</code>.</li>
+  <li><code>run_primitive_ml_dataset.py</code> — batch driver, config → ETABS + optional responses.</li>
+  <li><code>run_parametric_dataset.py</code> — ETABS geometry build, story sync.</li>
+  <li><code>structured_analysis_export.py</code> — post-build pipeline, manifest, CSV tree.</li>
+  <li><code>etabs_api.py</code> / <code>etabs_api/</code> — COM helpers, materials, mass source, export utilities.</li>
+</ul>
+
+<p class="muted" style="margin-top:2rem;">Generated for the ETABS API / primitive dataset workspace. Open this file in any browser.</p>
+
+</body>
+</html>

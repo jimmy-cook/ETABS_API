@@ -1,0 +1,5 @@
+# For run_primitive_ml_dataset.py (primitive ML model generation)
+numpy>=1.20
+comtypes>=1.1.0
+# Optional: YAML configs instead of JSON
+# pyyaml>=6.0

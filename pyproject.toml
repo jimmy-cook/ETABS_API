@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "etabs-ml"
+version = "0.1.0"
+description = "Primitive sampling, ETABS frame building, and post-build analysis/table export helpers"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "Jimmy Cook" }]
+dependencies = [
+  "numpy>=1.20",
+  "comtypes>=1.1.0",
+  "pandas>=1.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+etabs-primitive-gen = "etabs_ml.run_primitive_ml_dataset:main"
+etabs-frame-datagen = "etabs_ml.etabs_frame_datagen:main"
+etabs-parametric = "etabs_ml.run_parametric_dataset:main"
+etabs-structured-export = "etabs_ml.structured_analysis_export:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
